@@ -247,21 +247,21 @@ pub fn spawn_reader_task(
     let mut rx = utils::reader_subscribe(&inner, &server);
 
     let server_addr = format!("{}:{}", server.host, server.port);
-    _debug!(inner, "Starting reader task for connection to {}", server_addr);
+    _debug!(inner, "[STAGE: READER_TASK] Starting reader task for connection to {}", server_addr);
     loop {
-      _debug!(inner, "Reader task loop iteration for {} ({})", server, server_addr);
+      _debug!(inner, "[STAGE: READER_LOOP] Reader task loop iteration for {} ({})", server, server_addr);
       let frame = match utils::next_frame(&inner, &mut reader, &server, &mut rx).await {
         Ok(Some(frame)) => {
-          _debug!(inner, "Got frame from {} ({}): {:?}", server, server_addr, frame);
+          _debug!(inner, "[STAGE: READER_FRAME] Got frame from {} ({}): {:?}", server, server_addr, frame);
           frame.into_resp3()
         },
         Ok(None) => {
-          _debug!(inner, "Connection closed (None) for {} ({})", server, server_addr);
+          _debug!(inner, "[STAGE: READER_CLOSED] Connection closed (None) for {} ({})", server, server_addr);
           last_error = None;
           break;
         },
         Err(e) => {
-          _debug!(inner, "Error in next_frame for {} ({}): {:?}", server, server_addr, e);
+          _debug!(inner, "[STAGE: READER_ERROR] Error in next_frame for {} ({}): {:?}", server, server_addr, e);
           last_error = Some(e);
           break;
         },

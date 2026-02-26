@@ -751,15 +751,15 @@ impl Router {
         hosts.iter().map(|s| format!("{}:{}", s.host, s.port)).collect::<Vec<_>>().join(", ")
       },
     };
-    _debug!(inner, "Establishing connection to {}", server_info);
+    _debug!(inner, "[STAGE: CONNECT] Establishing connection to {}", server_info);
     
     let result = self.connections.initialize(inner, &mut self.buffer).await;
     self.sync_network_timeout_state();
     
     if result.is_ok() {
-      _debug!(inner, "Successfully connected to {}", server_info);
+      _debug!(inner, "[STAGE: CONNECT] Successfully connected to {}", server_info);
     } else {
-      _debug!(inner, "Failed to connect to {}: {:?}", server_info, result.as_ref().err());
+      _debug!(inner, "[STAGE: CONNECT] Failed to connect to {}: {:?}", server_info, result.as_ref().err());
     }
 
     if result.is_ok() {

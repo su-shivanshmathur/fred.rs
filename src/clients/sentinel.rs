@@ -67,6 +67,7 @@ impl SentinelClient {
         perf.unwrap_or_default(),
         connection.unwrap_or_default(),
         policy,
+        None,
       ),
     }
   }

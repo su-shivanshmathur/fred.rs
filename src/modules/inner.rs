@@ -446,8 +446,17 @@ impl RedisClientInner {
     perf: PerformanceConfig,
     connection: ConnectionConfig,
     policy: Option<ReconnectPolicy>,
+    client_name: Option<&str>,
   ) -> Arc<RedisClientInner> {
-    let id = Str::from(format!("fred-{}", utils::random_string(10)));
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static CLIENT_COUNTER: AtomicUsize = AtomicUsize::new(0);
+    
+    let id = if let Some(name) = client_name {
+      let counter = CLIENT_COUNTER.fetch_add(1, Ordering::Relaxed);
+      Str::from(format!("fred-{}-{}", name, counter))
+    } else {
+      Str::from(format!("fred-{}", utils::random_string(10)))
+    };
     let resolver = AsyncRwLock::new(create_resolver(&id));
     let (command_tx, command_rx) = unbounded_channel();
     let notifications = Arc::new(Notifications::new(&id));

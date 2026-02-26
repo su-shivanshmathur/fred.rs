@@ -99,7 +99,20 @@ impl RedisClient {
     policy: Option<ReconnectPolicy>,
   ) -> RedisClient {
     RedisClient {
-      inner: RedisClientInner::new(config, perf.unwrap_or_default(), connection.unwrap_or_default(), policy),
+      inner: RedisClientInner::new(config, perf.unwrap_or_default(), connection.unwrap_or_default(), policy, Some("publisher")),
+    }
+  }
+
+  #[doc(hidden)]
+  pub fn new_with_name(
+    config: RedisConfig,
+    perf: Option<PerformanceConfig>,
+    connection: Option<ConnectionConfig>,
+    policy: Option<ReconnectPolicy>,
+    name: &str,
+  ) -> RedisClient {
+    RedisClient {
+      inner: RedisClientInner::new(config, perf.unwrap_or_default(), connection.unwrap_or_default(), policy, Some(name)),
     }
   }
 

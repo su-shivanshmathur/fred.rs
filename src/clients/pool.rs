@@ -74,12 +74,13 @@ impl RedisPool {
       Err(RedisError::new(RedisErrorKind::Config, "Pool cannot be empty."))
     } else {
       let mut clients = Vec::with_capacity(size);
-      for _ in 0 .. size {
-        clients.push(RedisClient::new(
+      for i in 0 .. size {
+        clients.push(RedisClient::new_with_name(
           config.clone(),
           perf.clone(),
           connection.clone(),
           policy.clone(),
+          &format!("pool-{}", i),
         ));
       }
 

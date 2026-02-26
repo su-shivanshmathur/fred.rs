@@ -259,7 +259,7 @@ impl SubscriberClient {
       channels:       Arc::new(RwLock::new(BTreeSet::new())),
       patterns:       Arc::new(RwLock::new(BTreeSet::new())),
       shard_channels: Arc::new(RwLock::new(BTreeSet::new())),
-      inner:          RedisClientInner::new(config, perf.unwrap_or_default(), connection.unwrap_or_default(), policy),
+      inner:          RedisClientInner::new(config, perf.unwrap_or_default(), connection.unwrap_or_default(), policy, Some("subscriber")),
     }
   }
 
@@ -273,6 +273,7 @@ impl SubscriberClient {
       self.inner.performance_config(),
       self.inner.connection.as_ref().clone(),
       self.inner.reconnect_policy(),
+      None,
     );
 
     SubscriberClient {

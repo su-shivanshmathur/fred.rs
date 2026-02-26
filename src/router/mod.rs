@@ -8,6 +8,7 @@ use crate::{
     types::{ClusterRouting, Server},
   },
   trace,
+  types as redis_types,
   utils as client_utils,
 };
 use futures::future::try_join_all;
@@ -734,30 +735,31 @@ impl Router {
   pub async fn connect(&mut self) -> Result<(), RedisError> {
     self.disconnect_all().await;
     
-    let server_info = match &self.inner.config.server {
-      crate::protocol::types::ServerConfig::Centralized { host, port } => {
-        format!("{}:{}", host, port)
+    let inner = &self.inner;
+    let server_info = match &inner.config.server {
+      redis_types::ServerConfig::Centralized { server, .. } => {
+        format!("{}:{}", server.host, server.port)
       },
-      crate::protocol::types::ServerConfig::Clustered { hosts } => {
+      redis_types::ServerConfig::Clustered { hosts } => {
         if hosts.is_empty() {
           "empty cluster".to_string()
         } else {
           hosts.iter().map(|s| format!("{}:{}", s.host, s.port)).collect::<Vec<_>>().join(", ")
         }
       },
-      crate::protocol::types::ServerConfig::Sentinel { hosts, .. } => {
+      redis_types::ServerConfig::Sentinel { hosts, .. } => {
         hosts.iter().map(|s| format!("{}:{}", s.host, s.port)).collect::<Vec<_>>().join(", ")
       },
     };
-    _debug!(self.inner, "Establishing connection to {}", server_info);
+    _debug!(inner, "Establishing connection to {}", server_info);
     
-    let result = self.connections.initialize(&self.inner, &mut self.buffer).await;
+    let result = self.connections.initialize(inner, &mut self.buffer).await;
     self.sync_network_timeout_state();
     
     if result.is_ok() {
-      _debug!(self.inner, "Successfully connected to {}", server_info);
+      _debug!(inner, "Successfully connected to {}", server_info);
     } else {
-      _debug!(self.inner, "Failed to connect to {}: {:?}", server_info, result.as_ref().err());
+      _debug!(inner, "Failed to connect to {}: {:?}", server_info, result.as_ref().err());
     }
 
     if result.is_ok() {

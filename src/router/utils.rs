@@ -574,11 +574,11 @@ pub async fn next_frame(
       Either::Left((None, frame_ft)) => {
         _debug!(inner, "[STAGE: CHANNEL_CLOSED] Interrupt channel closed for {} ({})", server, server_addr);
         let result = frame_ft.await;
-        _debug!(inner, "[STAGE: FRAME_AFTER_CLOSE] Frame after channel closed on {} ({}): {:?}", server, server_addr, result);
+        _debug!(inner, "[STAGE: FRAME_AFTER_CLOSE] Frame after channel closed on {} ({})", server, server_addr);
         result
       },
       Either::Right((frame, _)) => {
-        _debug!(inner, "[STAGE: FRAME_RECV] Received frame on {} ({}): {:?}", server, server_addr, frame);
+        _debug!(inner, "[STAGE: FRAME_RECV] Received frame on {} ({})", server, server_addr);
         frame
       },
     }

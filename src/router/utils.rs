@@ -563,16 +563,24 @@ pub async fn next_frame(
     pin!(recv_ft);
     pin!(frame_ft);
 
+    let server_addr = format!("{}:{}", server.host, server.port);
+    _debug!(inner, "Waiting for frame or interrupt on {} ({})", server, server_addr);
     match futures::future::select(recv_ft, frame_ft).await {
-      Either::Left((Some(_), _)) => {
-        _debug!(inner, "Recv interrupt on {}", server);
+      Either::Left((Some(_), _frame_ft)) => {
+        _debug!(inner, "Recv interrupt on {} ({})", server, server_addr);
+        
         Err(RedisError::new(RedisErrorKind::IO, "Unresponsive connection."))
       },
       Either::Left((None, frame_ft)) => {
-        _debug!(inner, "Interrupt channel closed for {}", server);
-        frame_ft.await
+        _debug!(inner, "Interrupt channel closed for {} ({})", server, server_addr);
+        let result = frame_ft.await;
+        _debug!(inner, "Frame after channel closed on {} ({}): {:?}", server, server_addr, result);
+        result
       },
-      Either::Right((frame, _)) => frame,
+      Either::Right((frame, _)) => {
+        _debug!(inner, "Received frame on {} ({}): {:?}", server, server_addr, frame);
+        frame
+      },
     }
   } else {
     _debug!(inner, "Skip waiting on interrupt rx.");

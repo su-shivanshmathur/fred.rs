@@ -987,6 +987,8 @@ pub async fn create(
   timeout: Option<Duration>,
 ) -> Result<RedisTransport, RedisError> {
   let timeout = timeout.unwrap_or(inner.connection_timeout());
+  let server_addr = format!("{}:{}", server.host, server.port);
+  _debug!(inner, "Creating connection to {} (timeout: {:?})", server_addr, timeout);
 
   _trace!(
     inner,

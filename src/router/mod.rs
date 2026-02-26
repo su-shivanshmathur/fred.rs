@@ -733,8 +733,32 @@ impl Router {
   /// Connect to the server(s), discarding any previous connection state.
   pub async fn connect(&mut self) -> Result<(), RedisError> {
     self.disconnect_all().await;
+    
+    let server_info = match &self.inner.config.server {
+      crate::protocol::types::ServerConfig::Centralized { host, port } => {
+        format!("{}:{}", host, port)
+      },
+      crate::protocol::types::ServerConfig::Clustered { hosts } => {
+        if hosts.is_empty() {
+          "empty cluster".to_string()
+        } else {
+          hosts.iter().map(|s| format!("{}:{}", s.host, s.port)).collect::<Vec<_>>().join(", ")
+        }
+      },
+      crate::protocol::types::ServerConfig::Sentinel { hosts, .. } => {
+        hosts.iter().map(|s| format!("{}:{}", s.host, s.port)).collect::<Vec<_>>().join(", ")
+      },
+    };
+    _debug!(self.inner, "Establishing connection to {}", server_info);
+    
     let result = self.connections.initialize(&self.inner, &mut self.buffer).await;
     self.sync_network_timeout_state();
+    
+    if result.is_ok() {
+      _debug!(self.inner, "Successfully connected to {}", server_info);
+    } else {
+      _debug!(self.inner, "Failed to connect to {}: {:?}", server_info, result.as_ref().err());
+    }
 
     if result.is_ok() {
       if let Err(e) = self.sync_replicas().await {

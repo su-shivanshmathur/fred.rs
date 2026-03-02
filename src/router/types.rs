@@ -59,28 +59,33 @@ impl ConnectionState {
 
   pub fn interrupt(&self, inner: &Arc<RedisClientInner>, servers: VecDeque<Server>) {
     let guard = self.interrupts.read();
+    _debug!(inner, "[STAGE: INTERRUPT] Starting interrupt for {} servers", servers.len());
 
     for server in servers.into_iter() {
       inner.notifications.broadcast_unresponsive(server.clone());
 
       if let Some(tx) = guard.get(&server) {
-        _debug!(inner, "Interrupting reader task for {}", server);
-        let _ = tx.send(());
+        _debug!(inner, "[STAGE: INTERRUPT_SEND] Sending interrupt to {}", server);
+        match tx.send(()) {
+          Ok(_) => _debug!(inner, "[STAGE: INTERRUPT_OK] Interrupt sent successfully to {}", server),
+          Err(e) => _warn!(inner, "[STAGE: INTERRUPT_FAIL] Failed to send interrupt to {}: {:?}", server, e),
+        }
       } else {
-        _debug!(inner, "Could not interrupt reader for {}", server);
+        _debug!(inner, "[STAGE: INTERRUPT_MISSING] Could not find interrupt channel for {}", server);
       }
     }
   }
 
   pub fn subscribe(&self, inner: &Arc<RedisClientInner>, server: &Server) -> UnboundedReceiver<()> {
-    _debug!(inner, "Subscribe to interrupts for {}", server);
+    _debug!(inner, "[STAGE: SUBSCRIBE] Subscribe to interrupts for {}", server);
     let (tx, rx) = unbounded_channel();
     self.interrupts.write().insert(server.clone(), tx);
+    _debug!(inner, "[STAGE: SUBSCRIBE_OK] Subscribed to interrupts for {} (channel created)", server);
     rx
   }
 
   pub fn unsubscribe(&self, inner: &Arc<RedisClientInner>, server: &Server) {
-    _debug!(inner, "Unsubscribe from interrupts for {}", server);
+    _debug!(inner, "[STAGE: UNSUBSCRIBE] Unsubscribe from interrupts for {}", server);
     self.interrupts.write().remove(server);
   }
 
@@ -151,11 +156,15 @@ impl ConnectionState {
       }
       let command_duration = now.duration_since(last_command_sent);
       if command_duration > inner.connection.unresponsive_timeout {
+        let buffer_len = commands.lock().len();
+        let cmd_info = commands.lock().front().map(|c| format!("{} ({})", c.kind.to_str_debug(), c.debug_id())).unwrap_or_default();
         _warn!(
           inner,
-          "Server {} unresponsive after {} ms",
+          "Server {} unresponsive after {} ms (buffer: {} cmds, oldest: {})",
           server,
-          command_duration.as_millis()
+          command_duration.as_millis(),
+          buffer_len,
+          cmd_info
         );
         unresponsive.push_back(server.clone());
       }

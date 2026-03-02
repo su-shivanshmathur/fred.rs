@@ -7,7 +7,7 @@ macro_rules! to(
 );
 
 macro_rules! _trace(
-  ($inner:tt, $($arg:tt)*) => { {
+  ($inner:expr, $($arg:tt)*) => { {
     if log::log_enabled!(log::Level::Trace) {
       log::trace!("{}: {}", $inner.id, format!($($arg)*))
     }
@@ -15,7 +15,7 @@ macro_rules! _trace(
 );
 
 macro_rules! _debug(
-  ($inner:tt, $($arg:tt)*) => { {
+  ($inner:expr, $($arg:tt)*) => { {
     if log::log_enabled!(log::Level::Debug) {
       log::debug!("{}: {}", $inner.id, format!($($arg)*))
     }
@@ -23,7 +23,7 @@ macro_rules! _debug(
 );
 
 macro_rules! _error(
-  ($inner:tt, $($arg:tt)*) => { {
+  ($inner:expr, $($arg:tt)*) => { {
     if log::log_enabled!(log::Level::Error) {
       log::error!("{}: {}", $inner.id, format!($($arg)*))
     }
@@ -31,7 +31,7 @@ macro_rules! _error(
 );
 
 macro_rules! _warn(
-  ($inner:tt, $($arg:tt)*) => { {
+  ($inner:expr, $($arg:tt)*) => { {
     if log::log_enabled!(log::Level::Warn) {
       log::warn!("{}: {}", $inner.id, format!($($arg)*))
     }
@@ -39,7 +39,7 @@ macro_rules! _warn(
 );
 
 macro_rules! _info(
-  ($inner:tt, $($arg:tt)*) => { {
+  ($inner:expr, $($arg:tt)*) => { {
     if log::log_enabled!(log::Level::Info) {
       log::info!("{}: {}", $inner.id, format!($($arg)*))
     }

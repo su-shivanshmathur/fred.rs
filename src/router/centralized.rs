@@ -48,10 +48,13 @@ pub fn spawn_reader_task(
   let (buffer, counters) = (buffer.clone(), counters.clone());
 
   tokio::spawn(async move {
+    _debug!(inner, "[STAGE: READER_START] Reader task STARTED for {}", server);
     let mut last_error = None;
     let mut rx = utils::reader_subscribe(&inner, &server);
+    _debug!(inner, "[STAGE: READER_LOOP] Entering read loop for {}", server);
 
     loop {
+      _debug!(inner, "[STAGE: READER_ITER] Starting iteration for {}", server);
       let frame = match utils::next_frame(&inner, &mut reader, &server, &mut rx).await {
         Ok(Some(frame)) => frame.into_resp3(),
         Ok(None) => {
@@ -59,6 +62,7 @@ pub fn spawn_reader_task(
           break;
         },
         Err(error) => {
+          _debug!(inner, "[STAGE: READER_ERR] Error in next_frame for {}: {:?}", server, error);
           last_error = Some(error);
           break;
         },
@@ -77,7 +81,9 @@ pub fn spawn_reader_task(
       }
     }
 
+    _debug!(inner, "[STAGE: READER_EXIT] Exiting reader loop for {} (error: {:?})", server, last_error);
     utils::reader_unsubscribe(&inner, &server);
+    _debug!(inner, "[STAGE: READER_UNSUBSCRIBED] Unsubscribed from interrupts for {}", server);
     utils::check_blocked_router(&inner, &buffer, &last_error);
     utils::check_final_write_attempt(&inner, &buffer, &last_error);
     if is_replica {
@@ -86,7 +92,7 @@ pub fn spawn_reader_task(
       responses::broadcast_reader_error(&inner, &server, last_error);
     }
 
-    _debug!(inner, "Ending reader task from {}", server);
+    _debug!(inner, "[STAGE: READER_END] Reader task ENDED for {}", server);
     Ok(())
   })
 }

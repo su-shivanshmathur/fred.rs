@@ -183,15 +183,19 @@ fn is_resp3_invalidation(_: &Resp3Frame) -> bool {
 ///
 /// If not then return it to the caller for further processing.
 pub fn check_pubsub_message(inner: &Arc<RedisClientInner>, server: &Server, frame: Resp3Frame) -> Option<Resp3Frame> {
+  _debug!(inner, "[STAGE: CHECK_PUBSUB] Checking frame for pubsub message from {}", server);
   if is_resp3_invalidation(&frame) {
+    _debug!(inner, "[STAGE: CHECK_PUBSUB] Frame is RESP3 invalidation from {}", server);
     broadcast_resp3_invalidation(inner, server, frame);
     return None;
   }
 
   let (is_resp3_pubsub, is_resp2_pubsub) = check_pubsub_formats(&frame);
   if !is_resp3_pubsub && !is_resp2_pubsub {
+    _debug!(inner, "[STAGE: CHECK_PUBSUB] Frame is not pubsub, returning for further processing from {}", server);
     return Some(frame);
   }
+  _debug!(inner, "[STAGE: CHECK_PUBSUB] Frame is pubsub (resp3={}, resp2={}) from {}", is_resp3_pubsub, is_resp2_pubsub, server);
 
   let span = trace::create_pubsub_span(inner, &frame);
   _trace!(inner, "Processing pubsub message from {}.", server);
@@ -303,24 +307,39 @@ fn is_clusterdown_error(frame: &Resp3Frame) -> Option<&str> {
 
 /// Check for special errors configured by the caller to initiate a reconnection process.
 pub fn check_special_errors(inner: &Arc<RedisClientInner>, frame: &Resp3Frame) -> Option<RedisError> {
+  _debug!(inner, "[STAGE: CHECK_SPECIAL_ERRORS] Checking frame for special errors: {:?}", frame.kind());
   if let Some(auth_error) = parse_redis_auth_error(frame) {
+    _debug!(inner, "[STAGE: CHECK_SPECIAL_ERRORS] Found auth error");
     return Some(auth_error);
   }
   if let Some(error) = is_clusterdown_error(frame) {
+    _debug!(inner, "[STAGE: CHECK_SPECIAL_ERRORS] Found CLUSTERDOWN error");
     return Some(pretty_error(error));
   }
 
-  check_global_reconnect_errors(inner, frame)
+  let result = check_global_reconnect_errors(inner, frame);
+  if result.is_some() {
+    _debug!(inner, "[STAGE: CHECK_SPECIAL_ERRORS] Found global reconnect error");
+  } else {
+    _debug!(inner, "[STAGE: CHECK_SPECIAL_ERRORS] No special errors found");
+  }
+  result
 }
 
 /// Handle an error in the reader task that should end the connection.
 pub fn broadcast_reader_error(inner: &Arc<RedisClientInner>, server: &Server, error: Option<RedisError>) {
+  let server_addr = format!("{}:{}", server.host, server.port);
+  _debug!(inner, "[STAGE: BROADCAST_READER_ERROR] Broadcasting reader error for {} ({})", server, server_addr);
   _warn!(inner, "Ending reader task from {} due to {:?}", server, error);
 
   if inner.should_reconnect() {
+    _debug!(inner, "[STAGE: BROADCAST_READER_ERROR] Sending reconnect for {} ({}) with force=false", server, server_addr);
     inner.send_reconnect(Some(server.clone()), false, None);
+  } else {
+    _debug!(inner, "[STAGE: BROADCAST_READER_ERROR] Not sending reconnect (should_reconnect=false) for {} ({})", server, server_addr);
   }
   if utils::read_locked(&inner.state) != ClientState::Disconnecting {
+    _debug!(inner, "[STAGE: BROADCAST_READER_ERROR] Broadcasting error to notifications for {} ({})", server, server_addr);
     inner
       .notifications
       .broadcast_error(error.unwrap_or(RedisError::new_canceled()));
@@ -329,17 +348,24 @@ pub fn broadcast_reader_error(inner: &Arc<RedisClientInner>, server: &Server, er
 
 #[cfg(not(feature = "replicas"))]
 pub fn broadcast_replica_error(inner: &Arc<RedisClientInner>, server: &Server, error: Option<RedisError>) {
+  _debug!(inner, "[STAGE: BROADCAST_REPLICA_ERROR] Delegating to broadcast_reader_error for {}", server);
   broadcast_reader_error(inner, server, error);
 }
 
 #[cfg(feature = "replicas")]
 pub fn broadcast_replica_error(inner: &Arc<RedisClientInner>, server: &Server, error: Option<RedisError>) {
+  let server_addr = format!("{}:{}", server.host, server.port);
+  _debug!(inner, "[STAGE: BROADCAST_REPLICA_ERROR] Broadcasting replica reader error for {} ({})", server, server_addr);
   _warn!(inner, "Ending replica reader task from {} due to {:?}", server, error);
 
   if inner.should_reconnect() {
+    _debug!(inner, "[STAGE: BROADCAST_REPLICA_ERROR] Sending replica reconnect for {} ({})", server, server_addr);
     inner.send_replica_reconnect(server);
+  } else {
+    _debug!(inner, "[STAGE: BROADCAST_REPLICA_ERROR] Not sending replica reconnect (should_reconnect=false) for {} ({})", server, server_addr);
   }
   if utils::read_locked(&inner.state) != ClientState::Disconnecting {
+    _debug!(inner, "[STAGE: BROADCAST_REPLICA_ERROR] Broadcasting error to notifications for {} ({})", server, server_addr);
     inner
       .notifications
       .broadcast_error(error.unwrap_or(RedisError::new_canceled()));

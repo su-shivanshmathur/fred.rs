@@ -409,6 +409,8 @@ pub async fn process_response_frame(
   counters: &Counters,
   frame: Resp3Frame,
 ) -> Result<(), RedisError> {
+  let server_addr = format!("{}:{}", server.host, server.port);
+  _debug!(inner, "[STAGE: PROCESS_RESPONSE] Processing response frame from {} ({})", server, server_addr);
   _trace!(inner, "Parsing response frame from {}", server);
   let mut command = {
     let mut guard = buffer.lock();
@@ -418,8 +420,9 @@ pub async fn process_response_frame(
       None => {
         _debug!(
           inner,
-          "Missing last command from {}. Dropping {:?}.",
+          "[STAGE: PROCESS_RESPONSE] Missing last command from {} ({}). Dropping {:?}.",
           server,
+          server_addr,
           frame.kind()
         );
         return Ok(());
@@ -427,17 +430,20 @@ pub async fn process_response_frame(
     };
 
     if utils::should_drop_extra_pubsub_frame(inner, &command, &frame) {
+      _debug!(inner, "[STAGE: PROCESS_RESPONSE] Dropping extra pubsub frame from {} ({})", server, server_addr);
       guard.push_front(command);
       return Ok(());
     } else {
       command
     }
   };
-  _trace!(
+  _debug!(
     inner,
-    "Checking response to {} ({})",
+    "[STAGE: PROCESS_RESPONSE] Found command {} ({}) for response from {} ({})",
     command.kind.to_str_debug(),
-    command.debug_id()
+    command.debug_id(),
+    server,
+    server_addr
   );
   counters.decr_in_flight();
   responses::check_and_set_unblocked_flag(inner, &command).await;

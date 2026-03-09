@@ -1384,7 +1384,7 @@ impl RedisCommandKind {
         | RedisCommandKind::FcallRO
         // makes it easier to avoid decoding in-flight responses with the wrong codec logic
         | RedisCommandKind::_Hello(_) => false,
-        _ => true,
+        _ => true, 
       }
     }
   }

@@ -175,6 +175,7 @@ pub async fn write_command(
 /// Check the shared connection command buffer to see if the oldest command blocks the router task on a
 /// response (not pipelined).
 pub fn check_blocked_router(inner: &Arc<RedisClientInner>, buffer: &SharedBuffer, error: &Option<RedisError>) {
+  _debug!(inner, "[STAGE: CHECK_BLOCKED_ROUTER] Checking for blocked router commands");
   let command = {
     let mut guard = buffer.lock();
     let should_pop = guard
@@ -183,20 +184,27 @@ pub fn check_blocked_router(inner: &Arc<RedisClientInner>, buffer: &SharedBuffer
       .unwrap_or(false);
 
     if should_pop {
-      guard.pop_front().unwrap()
+      let cmd = guard.pop_front().unwrap();
+      _debug!(inner, "[STAGE: CHECK_BLOCKED_ROUTER] Found blocked command: {}", cmd.kind.to_str_debug());
+      cmd
     } else {
+      _debug!(inner, "[STAGE: CHECK_BLOCKED_ROUTER] No blocked router commands found");
       return;
     }
   };
 
   let tx = match command.take_router_tx() {
     Some(tx) => tx,
-    None => return,
+    None => {
+      _debug!(inner, "[STAGE: CHECK_BLOCKED_ROUTER] Command has no router tx");
+      return;
+    }
   };
   let error = error
     .clone()
     .unwrap_or(RedisError::new(RedisErrorKind::IO, "Connection Closed"));
 
+  _debug!(inner, "[STAGE: CHECK_BLOCKED_ROUTER] Sending connection closed error for command: {}", command.kind.to_str_debug());
   if let Err(_) = tx.send(RouterResponse::ConnectionClosed((error, command))) {
     _warn!(inner, "Failed to send router connection closed error.");
   }
@@ -205,11 +213,19 @@ pub fn check_blocked_router(inner: &Arc<RedisClientInner>, buffer: &SharedBuffer
 /// Filter the shared buffer, removing commands that reached the max number of attempts and responding to each caller
 /// with the underlying error.
 pub fn check_final_write_attempt(inner: &Arc<RedisClientInner>, buffer: &SharedBuffer, error: &Option<RedisError>) {
+  _debug!(inner, "[STAGE: CHECK_FINAL_WRITE] Checking for commands that reached max attempts");
   let mut guard = buffer.lock();
-  let commands = guard
+  let initial_count = guard.len();
+  let commands: Vec<_> = guard
     .drain(..)
     .filter_map(|command| {
       if command.should_finish_with_error(inner) {
+        _debug!(
+          inner,
+          "[STAGE: CHECK_FINAL_WRITE] Finishing command {} with error (attempts: {})",
+          command.kind.to_str_debug(),
+          command.write_attempts
+        );
         command.finish(
           inner,
           Err(
@@ -226,7 +242,10 @@ pub fn check_final_write_attempt(inner: &Arc<RedisClientInner>, buffer: &SharedB
     })
     .collect();
 
-  *guard = commands;
+  let final_count = commands.len();
+  let finished_count = initial_count - final_count;
+  _debug!(inner, "[STAGE: CHECK_FINAL_WRITE] Finished {} commands, {} remaining in buffer", finished_count, final_count);
+  *guard = commands.into();
 }
 
 /// Check whether to drop the frame if it was sent in response to a pubsub command as a part of an unknown number of
@@ -600,7 +619,11 @@ pub async fn next_frame(
 
 #[cfg(feature = "check-unresponsive")]
 pub fn reader_subscribe(inner: &Arc<RedisClientInner>, server: &Server) -> Option<UnboundedReceiver<()>> {
-  Some(inner.network_timeouts.state().subscribe(inner, server))
+  let server_addr = format!("{}:{}", server.host, server.port);
+  _debug!(inner, "[STAGE: READER_SUBSCRIBE] Subscribing to interrupt channel for {} ({})", server, server_addr);
+  let rx = inner.network_timeouts.state().subscribe(inner, server);
+  _debug!(inner, "[STAGE: READER_SUBSCRIBED] Subscribed to interrupt channel for {} ({})", server, server_addr);
+  Some(rx)
 }
 
 #[cfg(not(feature = "check-unresponsive"))]
@@ -610,7 +633,10 @@ pub fn reader_subscribe(_: &Arc<RedisClientInner>, _: &Server) -> Option<Unbound
 
 #[cfg(feature = "check-unresponsive")]
 pub fn reader_unsubscribe(inner: &Arc<RedisClientInner>, server: &Server) {
+  let server_addr = format!("{}:{}", server.host, server.port);
+  _debug!(inner, "[STAGE: READER_UNSUBSCRIBE] Unsubscribing from interrupt channel for {} ({})", server, server_addr);
   inner.network_timeouts.state().unsubscribe(inner, server);
+  _debug!(inner, "[STAGE: READER_UNSUBSCRIBED] Unsubscribed from interrupt channel for {} ({})", server, server_addr);
 }
 
 #[cfg(not(feature = "check-unresponsive"))]

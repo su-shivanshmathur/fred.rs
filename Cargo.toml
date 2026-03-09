@@ -115,7 +115,7 @@ name = "events"
 required-features = ["tokio-stream/sync"]
 
 [features]
-default = ["ignore-auth-error", "pool-prefer-active"]
+default = ["ignore-auth-error", "pool-prefer-active" , "check-unresponsive"]
 serde-json = ["serde_json"]
 subscriber-client = []
 metrics = []

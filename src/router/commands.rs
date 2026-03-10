@@ -102,11 +102,15 @@ pub async fn write_command(
   router: &mut Router,
   mut command: Command,
 ) -> Result<(), Error> {
+  let is_pubsub = command.kind.is_pubsub();
+  let is_publish = matches!(command.kind, CommandKind::Publish | CommandKind::Spublish);
   _trace!(
     inner,
-    "Writing command: {:?} ({})",
+    "Writing command: {:?} ({}) pubsub={} publish={}",
     command.kind.to_str_debug(),
-    command.debug_id()
+    command.debug_id(),
+    is_pubsub,
+    is_publish
   );
   if let Err(err) = command.decr_check_attempted() {
     command.respond_to_caller(Err(err));
@@ -140,7 +144,13 @@ pub async fn write_command(
       }
     } else {
       let conn = match router.route(&command) {
-        Some(conn) => conn,
+        Some(conn) => {
+          #[cfg(feature = "replicas")]
+          _debug!(inner, "Routed to {} (replica={})", conn.server, conn.replica);
+          #[cfg(not(feature = "replicas"))]
+          _debug!(inner, "Routed to {}", conn.server);
+          conn
+        },
         None => {
           #[cfg(feature = "replicas")]
           return Box::pin(create_replica_connection(inner, router, command)).await;
@@ -157,7 +167,11 @@ pub async fn write_command(
 
       match utils::write_command(inner, conn, command, false).await {
         Ok(flushed) => {
-          _trace!(inner, "Sent command to {}. Flushed: {}", conn.server, flushed);
+          #[cfg(feature = "replicas")]
+          let conn_type = if conn.replica { "replica" } else { "primary" };
+          #[cfg(not(feature = "replicas"))]
+          let conn_type = "primary";
+          _debug!(inner, "Sent command to {} ({}). Flushed: {}", conn.server, conn_type, flushed);
           if is_blocking {
             inner.backchannel.set_blocked(&conn.server);
           }
@@ -456,21 +470,26 @@ async fn read_or_write(
   router: &mut Router,
   rx: &mut CommandReceiver,
 ) -> Result<(), Error> {
+  _debug!(inner, "Entering read_or_write select loop");
   if inner.connection.unresponsive.max_timeout.is_some() {
+    _debug!(inner, "Using unresponsive timeout mode with interval: {:?}", inner.connection.unresponsive.interval);
     let sleep_ft = sleep(inner.connection.unresponsive.interval);
     pin!(sleep_ft);
 
     tokio::select! {
       biased;
       results = router.select_read(inner) => {
+        _debug!(inner, "Select returned {} read results", results.len());
         for (server, result) in results.into_iter() {
           utils::process_response(inner, router, &server, result).await?;
         }
       },
       Some(command) = rx.recv() => {
+        _debug!(inner, "Received command from rx channel");
         process_command(inner, router, command).await?;
       },
       _ = sleep_ft => {
+        _debug!(inner, "Unresponsive timeout interval elapsed, returning for socket poll");
         // break out and return early, starting another call to poll_next on all the sockets,
         // which also performs unresponsive checks on each socket
         return Ok(());
@@ -480,11 +499,13 @@ async fn read_or_write(
     tokio::select! {
       biased;
       results = router.select_read(inner) => {
+        _debug!(inner, "Select returned {} read results", results.len());
         for (server, result) in results.into_iter() {
           utils::process_response(inner, router, &server, result).await?;
         }
       },
       Some(command) = rx.recv() => {
+        _debug!(inner, "Received command from rx channel");
         process_command(inner, router, command).await?;
       },
     };
@@ -495,30 +516,57 @@ async fn read_or_write(
 
 #[cfg(feature = "glommio")]
 async fn drain_command_rx(inner: &RefCount<ClientInner>, rx: &mut CommandReceiver) {
+  _debug!(inner, "Draining command receiver (glommio)");
+  let mut count = 0u64;
   while let Some(command) = rx.try_recv().await {
+    count += 1;
     _warn!(inner, "Skip command with canceled error after calling quit.");
     command.cancel();
+  }
+  if count > 0 {
+    _debug!(inner, "Drained {} commands from receiver", count);
   }
 }
 
 #[cfg(not(feature = "glommio"))]
 fn drain_command_rx(inner: &RefCount<ClientInner>, rx: &mut CommandReceiver) {
+  _debug!(inner, "Draining command receiver");
+  let mut count = 0u64;
   while let Ok(command) = rx.try_recv() {
+    count += 1;
     _warn!(inner, "Skip command with canceled error after calling quit.");
     command.cancel();
+  }
+  if count > 0 {
+    _debug!(inner, "Drained {} commands from receiver", count);
   }
 }
 
 /// Initialize connections and start the routing task.
 pub async fn start(inner: &RefCount<ClientInner>) -> Result<(), Error> {
+  let deployment_type = if inner.config.server.is_clustered() {
+    "clustered"
+  } else if inner.config.server.is_sentinel() {
+    "sentinel"
+  } else {
+    "centralized"
+  };
+  _debug!(inner, "Starting router command loop (deployment={})", deployment_type);
+
   #[cfg(feature = "mocks")]
   if let Some(ref mocks) = inner.config.mocks {
+    _debug!(inner, "Using mocking layer");
     return mocking::start(inner, mocks).await;
   }
 
+  _debug!(inner, "Taking command receiver");
   let mut rx = match inner.take_command_rx() {
-    Some(rx) => rx,
+    Some(rx) => {
+      _debug!(inner, "Successfully took command receiver");
+      rx
+    },
     None => {
+      _warn!(inner, "Failed to take command receiver - another task already running");
       // the `_lock` field on inner synchronizes the getters/setters on the command channel halves, so if this field
       // is None then another task must have set and removed the receiver concurrently.
       return Err(Error::new(
@@ -528,43 +576,67 @@ pub async fn start(inner: &RefCount<ClientInner>) -> Result<(), Error> {
     },
   };
 
+  _debug!(inner, "Resetting reconnection attempts");
   inner.reset_reconnection_attempts();
+  _debug!(inner, "Creating new router");
   let mut router = Router::new(inner);
-  _debug!(inner, "Initializing router with policy: {:?}", inner.reconnect_policy());
+  _debug!(
+    inner,
+    "Initializing router (deployment={}, policy={:?})",
+    deployment_type,
+    inner.reconnect_policy()
+  );
   let result = if inner.config.fail_fast {
+    _debug!(inner, "Connecting in fail-fast mode");
     if let Err(e) = Box::pin(router.connect(inner)).await {
+      _warn!(inner, "Failed to connect in fail-fast mode: {:?}", e);
       inner.notifications.broadcast_connect(Err(e.clone()));
       inner.notifications.broadcast_error(e.clone(), None);
       Err(e)
     } else {
+      _debug!(inner, "Successfully connected in fail-fast mode");
       inner.set_client_state(ClientState::Connected);
       inner.notifications.broadcast_connect(Ok(()));
       Ok(())
     }
   } else {
+    _debug!(inner, "Connecting with reconnect policy");
     Box::pin(utils::reconnect_with_policy(inner, &mut router)).await
   };
 
   if let Err(error) = result {
+    _warn!(inner, "Initial connection failed: {:?}", error);
     inner.store_command_rx(rx, false);
     Err(error)
   } else {
+    _debug!(
+      inner,
+      "Initial connection successful (deployment={}), entering command loop",
+      deployment_type
+    );
     #[cfg(feature = "credential-provider")]
     inner.reset_credential_refresh_task();
 
     let mut result = Ok(());
+    let mut iteration = 0u64;
     loop {
+      iteration += 1;
+      _debug!(inner, "Command loop iteration {}", iteration);
       if let Err(err) = read_or_write(inner, &mut router, &mut rx).await {
         _debug!(inner, "Error processing command: {:?}", err);
         router.clear_retry_buffer();
+        _debug!(inner, "Disconnecting all connections");
         let _ = router.disconnect_all(inner).await;
 
         if !err.is_canceled() {
           result = Err(err);
+        } else {
+          _debug!(inner, "Command was canceled, exiting loop gracefully");
         }
         break;
       }
     }
+    _debug!(inner, "Exiting command loop, draining remaining commands");
     #[cfg(feature = "glommio")]
     drain_command_rx(inner, &mut rx).await;
     #[cfg(not(feature = "glommio"))]
@@ -572,7 +644,9 @@ pub async fn start(inner: &RefCount<ClientInner>) -> Result<(), Error> {
     #[cfg(feature = "credential-provider")]
     inner.abort_credential_refresh_task();
 
+    _debug!(inner, "Storing command receiver back");
     inner.store_command_rx(rx, false);
+    _debug!(inner, "Router command loop finished with result: {:?}", result);
     result
   }
 }

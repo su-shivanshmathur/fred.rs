@@ -16,14 +16,14 @@ use crate::{
 };
 use fred_macros::rm_send_if;
 use futures::future::{join_all, try_join_all};
-use std::{fmt, future::Future, time::Duration};
+use std::{fmt, future::Future, sync::Arc, time::Duration};
 
 #[cfg(not(feature = "glommio"))]
 pub use tokio::sync::{Mutex as AsyncMutex, OwnedMutexGuard};
 
 struct PoolInner {
-  clients:          Vec<Client>,
-  counter:          AtomicUsize,
+  clients: Vec<Client>,
+  counter: AtomicUsize,
   prefer_connected: AtomicBool,
 }
 
@@ -89,7 +89,7 @@ impl Pool {
       Err(Error::new(ErrorKind::Config, "Pool cannot be empty."))
     } else {
       let mut clients = Vec::with_capacity(size);
-      for _ in 0 .. size {
+      for _ in 0..size {
         clients.push(Client::new(
           config.clone(),
           perf.clone(),
@@ -135,7 +135,7 @@ impl Pool {
   pub fn next_connected(&self) -> &Client {
     let mut idx = utils::incr_atomic(&self.inner.counter) % self.inner.clients.len();
 
-    for _ in 0 .. self.inner.clients.len() {
+    for _ in 0..self.inner.clients.len() {
       let client = &self.inner.clients[idx];
       if client.is_connected() {
         return client;
@@ -212,12 +212,55 @@ impl ClientLike for Pool {
   /// See [init](Self::init) for an alternative shorthand.
   fn connect(&self) -> ConnectHandle {
     let clients = self.inner.clients.clone();
+    let pool_size = clients.len();
+    trace!("Starting pool connection for {} clients", pool_size);
+
     spawn(async move {
-      let tasks: Vec<_> = clients.iter().map(|c| c.connect()).collect();
-      for result in join_all(tasks).await.into_iter() {
-        result??;
+      let handles: Arc<std::sync::Mutex<Vec<(usize, ConnectHandle)>>> =
+        Arc::new(std::sync::Mutex::new(Vec::with_capacity(clients.len())));
+
+      for (idx, client) in clients.iter().enumerate() {
+        let handle = client.connect();
+        handles.lock().unwrap().push((idx, handle));
+        trace!("Pool client {}: connection task spawned", idx);
       }
 
+      let monitor_handles = handles.clone();
+      let monitor_pool_size = pool_size;
+      spawn(async move {
+        let mut finished: std::collections::HashSet<usize> = std::collections::HashSet::new();
+        loop {
+          sleep(Duration::from_secs(5)).await;
+          let handles_guard = monitor_handles.lock().unwrap();
+          for (idx, handle) in handles_guard.iter() {
+            if handle.is_finished() && !finished.contains(idx) {
+              trace!("Pool monitor: client {} task finished", idx);
+              finished.insert(*idx);
+            }
+          }
+          drop(handles_guard);
+          info!("Pool monitor: {}/{} tasks finished", finished.len(), monitor_pool_size);
+          if finished.len() == monitor_pool_size {
+            info!("Pool monitor: all tasks finished, stopping");
+            break;
+          }
+        }
+      });
+
+      let handles_to_await: Vec<_> = {
+        let mut guard = handles.lock().unwrap();
+        guard.drain(..).collect()
+      };
+
+      for (idx, handle) in handles_to_await {
+        if let Err(e) = handle.await {
+          error!("Pool client {}: connection task failed: {:?}", idx, e);
+          return Err(e.into());
+        }
+        trace!("Pool client {}: connection completed", idx);
+      }
+
+      trace!("Pool: all {} client connections completed successfully", pool_size);
       Ok::<(), Error>(())
     })
   }
@@ -489,7 +532,7 @@ impl ExclusivePool {
       Err(Error::new(ErrorKind::Config, "Pool cannot be empty."))
     } else {
       let mut clients = Vec::with_capacity(size);
-      for _ in 0 .. size {
+      for _ in 0..size {
         clients.push(RefCount::new(AsyncMutex::new(Client::new(
           config.clone(),
           perf.clone(),
@@ -533,11 +576,61 @@ impl ExclusivePool {
   /// See [init](Self::init) for an alternative shorthand.
   pub async fn connect(&self) -> ConnectHandle {
     let tasks = self.connect_pool().await;
+    let pool_size = tasks.len();
+    trace!("Starting exclusive pool connection for {} clients", pool_size);
+
     tokio::spawn(async move {
-      for result in join_all(tasks).await.into_iter() {
-        result??;
+      let handles: Arc<std::sync::Mutex<Vec<(usize, ConnectHandle)>>> =
+        Arc::new(std::sync::Mutex::new(Vec::with_capacity(tasks.len())));
+
+      for (idx, handle) in tasks.into_iter().enumerate() {
+        handles.lock().unwrap().push((idx, handle));
+        trace!("Exclusive pool client {}: connection task spawned", idx);
       }
 
+      let monitor_handles = handles.clone();
+      let monitor_pool_size = pool_size;
+      tokio::spawn(async move {
+        let mut finished: std::collections::HashSet<usize> = std::collections::HashSet::new();
+        loop {
+          sleep(Duration::from_secs(5)).await;
+          let handles_guard = monitor_handles.lock().unwrap();
+          for (idx, handle) in handles_guard.iter() {
+            if handle.is_finished() && !finished.contains(idx) {
+              trace!("Exclusive pool monitor: client {} task finished", idx);
+              finished.insert(*idx);
+            }
+          }
+          drop(handles_guard);
+          info!(
+            "Exclusive pool monitor: {}/{} tasks finished",
+            finished.len(),
+            monitor_pool_size
+          );
+          if finished.len() == monitor_pool_size {
+            info!("Exclusive pool monitor: all tasks finished, stopping");
+            break;
+          }
+        }
+      });
+
+      let handles_to_await: Vec<_> = {
+        let mut guard = handles.lock().unwrap();
+        guard.drain(..).collect()
+      };
+
+      for (idx, handle) in handles_to_await {
+        if let Err(e) = handle.await {
+          error!("Exclusive pool client {}: connection task failed: {:?}", idx, e);
+          return Err(e.into());
+        }
+        trace!("Exclusive pool client {}: connection completed", idx);
+      }
+
+      trace!(
+        "Exclusive pool: all {} client connections completed successfully",
+        pool_size
+      );
       Ok(())
     })
   }
@@ -634,7 +727,7 @@ impl ExclusivePool {
   pub async fn acquire(&self) -> OwnedMutexGuard<Client> {
     let mut idx = utils::incr_atomic(&self.inner.counter) % self.inner.clients.len();
 
-    for _ in 0 .. self.inner.clients.len() {
+    for _ in 0..self.inner.clients.len() {
       if let Ok(client) = self.inner.clients[idx].clone().try_lock_owned() {
         return client;
       }

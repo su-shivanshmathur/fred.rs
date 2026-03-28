@@ -22,7 +22,7 @@ use std::{
   iter::repeat,
   sync::Arc,
 };
-use tokio::task::{AbortHandle, JoinHandle};
+use tokio::task::JoinHandle;
 
 /// Find the cluster node that should receive the command.
 pub fn route_command<'a>(
@@ -325,7 +325,7 @@ pub fn spawn_reader_task(
 
   let abort_handle = task.abort_handle();
   tokio::spawn(async move {
-    tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
+    tokio::time::sleep(tokio::time::Duration::from_secs(300)).await;
     abort_handle.abort();
   });
 

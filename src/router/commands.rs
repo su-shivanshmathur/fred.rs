@@ -490,6 +490,18 @@ fn process_connections(
   Ok(())
 }
 
+/// Abort the reader task for a random connection.
+fn process_abort_reader(
+  inner: &Arc<RedisClientInner>,
+  router: &mut Router,
+  tx: OneshotSender<Result<bool, RedisError>>,
+) -> Result<(), RedisError> {
+  let aborted = router.connections.abort_reader();
+  _debug!(inner, "Aborted reader task: {}", aborted);
+  let _ = tx.send(Ok(aborted));
+  Ok(())
+}
+
 /// Process any kind of router command.
 async fn process_command(
   inner: &Arc<RedisClientInner>,
@@ -510,6 +522,7 @@ async fn process_command(
     RouterCommand::Pipeline { commands } => process_pipeline(inner, router, commands).await,
     RouterCommand::Command(command) => process_normal_command(inner, router, command).await,
     RouterCommand::Connections { tx } => process_connections(inner, router, tx),
+    RouterCommand::AbortReader { tx } => process_abort_reader(inner, router, tx),
     #[cfg(feature = "replicas")]
     RouterCommand::SyncReplicas { tx } => process_sync_replicas(inner, router, tx).await,
     #[cfg(not(feature = "replicas"))]

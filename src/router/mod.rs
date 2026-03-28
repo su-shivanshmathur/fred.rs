@@ -7,9 +7,7 @@ use crate::{
     responders::ResponseKind,
     types::{ClusterRouting, Server},
   },
-  trace,
-  types as redis_types,
-  utils as client_utils,
+  trace, types as redis_types, utils as client_utils,
 };
 use futures::future::try_join_all;
 use semver::Version;
@@ -64,17 +62,21 @@ pub enum Written {
 
 impl fmt::Display for Written {
   fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-    write!(f, "{}", match self {
-      Written::Backpressure(_) => "Backpressure",
-      Written::Sent(_) => "Sent",
-      Written::SentAll => "SentAll",
-      Written::Disconnected(_) => "Disconnected",
-      Written::Ignore => "Ignore",
-      Written::NotFound(_) => "NotFound",
-      Written::Error(_) => "Error",
-      #[cfg(feature = "replicas")]
-      Written::Fallback(_) => "Fallback",
-    })
+    write!(
+      f,
+      "{}",
+      match self {
+        Written::Backpressure(_) => "Backpressure",
+        Written::Sent(_) => "Sent",
+        Written::SentAll => "SentAll",
+        Written::Disconnected(_) => "Disconnected",
+        Written::Ignore => "Ignore",
+        Written::NotFound(_) => "NotFound",
+        Written::Error(_) => "Error",
+        #[cfg(feature = "replicas")]
+        Written::Fallback(_) => "Fallback",
+      }
+    )
   }
 }
 
@@ -129,7 +131,7 @@ pub enum Connections {
   },
   Clustered {
     /// The cached cluster routing table used for mapping keys to server IDs.
-    cache:   ClusterRouting,
+    cache: ClusterRouting,
     /// A map of server IDs and connections.
     writers: HashMap<Server, RedisWriter>,
   },
@@ -150,7 +152,7 @@ impl Connections {
 
   pub fn new_clustered() -> Self {
     Connections::Clustered {
-      cache:   ClusterRouting::new(),
+      cache: ClusterRouting::new(),
       writers: HashMap::new(),
     }
   }
@@ -492,6 +494,35 @@ impl Connections {
         .unwrap_or(Vec::new()),
     }
   }
+
+  /// Abort the reader task for the first available connection.
+  /// Returns true if a reader was found and aborted, false otherwise.
+  pub fn abort_reader(&mut self) -> bool {
+    match self {
+      Connections::Clustered { ref mut writers, .. } => {
+        for writer in writers.values_mut() {
+          if let Some(ref mut reader) = writer.reader {
+            if reader.abort_handle.is_some() {
+              reader.abort();
+              return true;
+            }
+          }
+        }
+        false
+      },
+      Connections::Centralized { ref mut writer } | Connections::Sentinel { ref mut writer, .. } => {
+        if let Some(ref mut writer) = writer {
+          if let Some(ref mut reader) = writer.reader {
+            if reader.abort_handle.is_some() {
+              reader.abort();
+              return true;
+            }
+          }
+        }
+        false
+      },
+    }
+  }
 }
 
 /// A struct for routing commands to the server(s).
@@ -499,12 +530,12 @@ pub struct Router {
   /// The connection map for each deployment type.
   pub connections: Connections,
   /// The inner client state associated with the router.
-  pub inner:       Arc<RedisClientInner>,
+  pub inner: Arc<RedisClientInner>,
   /// Storage for commands that should be deferred or retried later.
-  pub buffer:      CommandBuffer,
+  pub buffer: CommandBuffer,
   /// The replica routing interface.
   #[cfg(feature = "replicas")]
-  pub replicas:    Replicas,
+  pub replicas: Replicas,
 }
 
 impl Router {
@@ -734,7 +765,7 @@ impl Router {
   /// Connect to the server(s), discarding any previous connection state.
   pub async fn connect(&mut self) -> Result<(), RedisError> {
     self.disconnect_all().await;
-    
+
     let inner = &self.inner;
     let server_info = match &inner.config.server {
       redis_types::ServerConfig::Centralized { server, .. } => {
@@ -744,22 +775,33 @@ impl Router {
         if hosts.is_empty() {
           "empty cluster".to_string()
         } else {
-          hosts.iter().map(|s| format!("{}:{}", s.host, s.port)).collect::<Vec<_>>().join(", ")
+          hosts
+            .iter()
+            .map(|s| format!("{}:{}", s.host, s.port))
+            .collect::<Vec<_>>()
+            .join(", ")
         }
       },
-      redis_types::ServerConfig::Sentinel { hosts, .. } => {
-        hosts.iter().map(|s| format!("{}:{}", s.host, s.port)).collect::<Vec<_>>().join(", ")
-      },
+      redis_types::ServerConfig::Sentinel { hosts, .. } => hosts
+        .iter()
+        .map(|s| format!("{}:{}", s.host, s.port))
+        .collect::<Vec<_>>()
+        .join(", "),
     };
     _debug!(inner, "[STAGE: CONNECT] Establishing connection to {}", server_info);
-    
+
     let result = self.connections.initialize(inner, &mut self.buffer).await;
     self.sync_network_timeout_state();
-    
+
     if result.is_ok() {
       _debug!(inner, "[STAGE: CONNECT] Successfully connected to {}", server_info);
     } else {
-      _debug!(inner, "[STAGE: CONNECT] Failed to connect to {}: {:?}", server_info, result.as_ref().err());
+      _debug!(
+        inner,
+        "[STAGE: CONNECT] Failed to connect to {}: {:?}",
+        server_info,
+        result.as_ref().err()
+      );
     }
 
     if result.is_ok() {

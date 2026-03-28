@@ -74,7 +74,7 @@ impl RedisPool {
       Err(RedisError::new(RedisErrorKind::Config, "Pool cannot be empty."))
     } else {
       let mut clients = Vec::with_capacity(size);
-      for i in 0 .. size {
+      for i in 0..size {
         clients.push(RedisClient::new_with_name(
           config.clone(),
           perf.clone(),
@@ -113,7 +113,7 @@ impl RedisPool {
   pub fn next(&self) -> &RedisClient {
     let mut idx = utils::incr_atomic(&self.counter) % self.clients.len();
 
-    for _ in 0 .. self.clients.len() {
+    for _ in 0..self.clients.len() {
       let client = &self.clients[idx];
       if client.is_connected() {
         return client;
@@ -140,6 +140,14 @@ impl RedisPool {
   #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
   pub fn replicas(&self) -> Replicas {
     Replicas::from(self.inner())
+  }
+
+  /// Abort the reader task for a random client in the pool.
+  /// Returns true if a reader was found and aborted.
+  pub async fn abort_reader_task(&self) -> Result<bool, RedisError> {
+    use rand::Rng;
+    let idx = rand::thread_rng().gen_range(0..self.clients.len());
+    self.clients[idx].abort_reader_task().await
   }
 }
 

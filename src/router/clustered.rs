@@ -22,7 +22,7 @@ use std::{
   iter::repeat,
   sync::Arc,
 };
-use tokio::task::{AbortHandle, JoinHandle};
+use tokio::task::JoinHandle;
 
 /// Find the cluster node that should receive the command.
 pub fn route_command<'a>(
@@ -242,7 +242,7 @@ pub fn spawn_reader_task(
   let (inner, server) = (inner.clone(), server.clone());
   let (buffer, counters) = (buffer.clone(), counters.clone());
 
-  let task = tokio::spawn(async move {
+  tokio::spawn(async move {
     let mut last_error = None;
     let mut rx = utils::reader_subscribe(&inner, &server);
 
@@ -321,15 +321,7 @@ pub fn spawn_reader_task(
 
     _debug!(inner, "Ending reader task from {}", server);
     Ok(())
-  });
-
-  let abort_handle = task.abort_handle();
-  tokio::spawn(async move {
-    tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
-    abort_handle.abort();
-  });
-
-  task
+  })
 }
 
 /// Send a MOVED or ASK command to the router, using the router channel if possible and falling back on the

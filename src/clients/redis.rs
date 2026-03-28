@@ -99,7 +99,13 @@ impl RedisClient {
     policy: Option<ReconnectPolicy>,
   ) -> RedisClient {
     RedisClient {
-      inner: RedisClientInner::new(config, perf.unwrap_or_default(), connection.unwrap_or_default(), policy, Some("publisher")),
+      inner: RedisClientInner::new(
+        config,
+        perf.unwrap_or_default(),
+        connection.unwrap_or_default(),
+        policy,
+        Some("publisher"),
+      ),
     }
   }
 
@@ -112,7 +118,13 @@ impl RedisClient {
     name: &str,
   ) -> RedisClient {
     RedisClient {
-      inner: RedisClientInner::new(config, perf.unwrap_or_default(), connection.unwrap_or_default(), policy, Some(name)),
+      inner: RedisClientInner::new(
+        config,
+        perf.unwrap_or_default(),
+        connection.unwrap_or_default(),
+        policy,
+        Some(name),
+      ),
     }
   }
 
@@ -296,7 +308,7 @@ impl RedisClient {
     S: Into<Server>,
   {
     WithOptions {
-      client:  self.clone(),
+      client: self.clone(),
       options: Options {
         cluster_node: Some(server.into()),
         ..Default::default()
@@ -309,6 +321,20 @@ impl RedisClient {
   #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
   pub fn replicas(&self) -> Replicas {
     Replicas::from(&self.inner)
+  }
+
+  /// Abort the reader task for a random connection.
+  /// Returns true if a reader was found and aborted.
+  pub async fn abort_reader_task(&self) -> Result<bool, RedisError> {
+    use crate::protocol::command::RouterCommand;
+    use tokio::sync::oneshot::channel as oneshot_channel;
+
+    let (tx, rx) = oneshot_channel();
+    let command = RouterCommand::AbortReader { tx };
+    crate::interfaces::send_to_router(&self.inner, command)?;
+
+    rx.await
+      .map_err(|e| RedisError::new(RedisErrorKind::Unknown, format!("Oneshot channel error: {}", e)))?
   }
 }
 

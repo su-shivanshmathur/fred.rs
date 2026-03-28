@@ -29,7 +29,10 @@ use std::{
   task::{Context, Poll},
   time::Duration,
 };
-use tokio::{net::TcpStream, task::JoinHandle};
+use tokio::{
+  net::TcpStream,
+  task::{AbortHandle, JoinHandle},
+};
 use tokio_util::codec::Framed;
 
 #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
@@ -807,6 +810,7 @@ impl RedisTransport {
     let reader = RedisReader {
       stream: Some(stream),
       task: None,
+      abort_handle: None,
       server,
       buffer,
       counters,
@@ -821,6 +825,7 @@ pub struct RedisReader {
   pub buffer: SharedBuffer,
   pub counters: Counters,
   pub task: Option<JoinHandle<Result<(), RedisError>>>,
+  pub abort_handle: Option<AbortHandle>,
 }
 
 impl RedisReader {
@@ -846,6 +851,15 @@ impl RedisReader {
     } else {
       self.task = None;
     }
+    self.stream = None;
+    self.abort_handle = None;
+  }
+
+  pub fn abort(&mut self) {
+    if let Some(handle) = self.abort_handle.take() {
+      handle.abort();
+    }
+    self.task = None;
     self.stream = None;
   }
 }
@@ -1036,14 +1050,16 @@ where
       ))
     },
   };
-  reader.task = Some(func(
+  let task = func(
     inner,
     reader_stream,
     &writer.server,
     &writer.buffer,
     &writer.counters,
     is_replica,
-  ));
+  );
+  reader.abort_handle = Some(task.abort_handle());
+  reader.task = Some(task);
   writer.reader = Some(reader);
 
   Ok((server, writer))

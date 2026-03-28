@@ -22,7 +22,7 @@ use std::{
   iter::repeat,
   sync::Arc,
 };
-use tokio::task::JoinHandle;
+use tokio::task::{AbortHandle, JoinHandle};
 
 /// Find the cluster node that should receive the command.
 pub fn route_command<'a>(
@@ -242,26 +242,51 @@ pub fn spawn_reader_task(
   let (inner, server) = (inner.clone(), server.clone());
   let (buffer, counters) = (buffer.clone(), counters.clone());
 
-  tokio::spawn(async move {
+  let task = tokio::spawn(async move {
     let mut last_error = None;
     let mut rx = utils::reader_subscribe(&inner, &server);
 
     let server_addr = format!("{}:{}", server.host, server.port);
-    _debug!(inner, "[STAGE: READER_TASK] Starting reader task for connection to {}", server_addr);
+    _debug!(
+      inner,
+      "[STAGE: READER_TASK] Starting reader task for connection to {}",
+      server_addr
+    );
     loop {
-      _debug!(inner, "[STAGE: READER_LOOP] Reader task loop iteration for {} ({})", server, server_addr);
+      _debug!(
+        inner,
+        "[STAGE: READER_LOOP] Reader task loop iteration for {} ({})",
+        server,
+        server_addr
+      );
       let frame = match utils::next_frame(&inner, &mut reader, &server, &mut rx).await {
         Ok(Some(frame)) => {
-          _debug!(inner, "[STAGE: READER_FRAME] Got frame from {} ({})", server, server_addr);
+          _debug!(
+            inner,
+            "[STAGE: READER_FRAME] Got frame from {} ({})",
+            server,
+            server_addr
+          );
           frame.into_resp3()
         },
         Ok(None) => {
-          _debug!(inner, "[STAGE: READER_CLOSED] Connection closed (None) for {} ({})", server, server_addr);
+          _debug!(
+            inner,
+            "[STAGE: READER_CLOSED] Connection closed (None) for {} ({})",
+            server,
+            server_addr
+          );
           last_error = None;
           break;
         },
         Err(e) => {
-          _debug!(inner, "[STAGE: READER_ERROR] Error in next_frame for {} ({}): {:?}", server, server_addr, e);
+          _debug!(
+            inner,
+            "[STAGE: READER_ERROR] Error in next_frame for {} ({}): {:?}",
+            server,
+            server_addr,
+            e
+          );
           last_error = Some(e);
           break;
         },
@@ -296,7 +321,15 @@ pub fn spawn_reader_task(
 
     _debug!(inner, "Ending reader task from {}", server);
     Ok(())
-  })
+  });
+
+  let abort_handle = task.abort_handle();
+  tokio::spawn(async move {
+    tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
+    abort_handle.abort();
+  });
+
+  task
 }
 
 /// Send a MOVED or ASK command to the router, using the router channel if possible and falling back on the

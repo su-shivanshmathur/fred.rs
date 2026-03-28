@@ -820,13 +820,16 @@ pub struct RedisReader {
   pub server: Server,
   pub buffer: SharedBuffer,
   pub counters: Counters,
-  pub task: Option<JoinHandle<Result<(), RedisError>>>,
+  pub task: Option<Arc<JoinHandle<Result<(), RedisError>>>>,
 }
 
 impl RedisReader {
   pub async fn wait(&mut self) -> Result<(), RedisError> {
-    if let Some(ref mut task) = self.task {
-      task.await?
+    if let Some(task) = self.task.take() {
+      match Arc::try_unwrap(task) {
+        Ok(task) => task.await?,
+        Err(_) => Ok(()),
+      }
     } else {
       Ok(())
     }
@@ -842,7 +845,11 @@ impl RedisReader {
 
   pub fn stop(&mut self, abort: bool) {
     if abort && self.task.is_some() {
-      self.task.take().unwrap().abort();
+      if let Some(task) = self.task.take() {
+        if let Ok(task) = Arc::try_unwrap(task) {
+          task.abort();
+        }
+      }
     } else {
       self.task = None;
     }
@@ -1036,15 +1043,16 @@ where
       ))
     },
   };
-  let handle = func(
+  let handle = Arc::new(func(
     inner,
     reader_stream,
     &writer.server,
     &writer.buffer,
     &writer.counters,
     is_replica,
-  );
-  inner.register_reader_task(writer.server.clone(), Arc::new(handle));
+  ));
+  inner.register_reader_task(writer.server.clone(), handle.clone());
+  reader.task = Some(handle);
   writer.reader = Some(reader);
 
   Ok((server, writer))

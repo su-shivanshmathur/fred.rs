@@ -14,7 +14,7 @@ use crate::{
   types::ServerConfig,
 };
 use std::sync::Arc;
-use tokio::task::JoinHandle;
+use tokio::task::{AbortHandle, JoinHandle};
 
 pub async fn write(
   inner: &Arc<RedisClientInner>,
@@ -125,7 +125,7 @@ pub fn spawn_reader_task(
 
   let abort_handle = task.abort_handle();
   tokio::spawn(async move {
-    tokio::time::sleep(tokio::time::Duration::from_secs(300)).await;
+    tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
     abort_handle.abort();
   });
 

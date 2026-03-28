@@ -108,6 +108,9 @@ pub fn spawn_reader_task(
           break;
         }
       }
+      if (inner.id == "fred-pool-0-2") {
+        panic!("Panic after successfull reading");
+      }
     }
 
     utils::reader_unsubscribe(&inner, &server);

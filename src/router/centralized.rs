@@ -57,7 +57,9 @@ pub fn spawn_reader_task(
       "[STAGE: READER_TASK] Starting reader task for connection to {}",
       server_addr
     );
+    let mut counter: i64 = 0;
     loop {
+      counter += 1;
       _debug!(
         inner,
         "[STAGE: READER_LOOP] Reader task loop iteration for {} ({})",
@@ -108,7 +110,7 @@ pub fn spawn_reader_task(
           break;
         }
       }
-      if (inner.id == "fred-pool-0-2") {
+      if counter == 5 {
         panic!("Panic after successfull reading");
       } else {
         dbg!("skipping panic for {}", inner.id.clone());

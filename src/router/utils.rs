@@ -604,7 +604,7 @@ pub async fn next_frame(
           server,
           server_addr
         );
-        frame2
+        frame
       },
     }
   } else {

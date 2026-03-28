@@ -47,7 +47,7 @@ pub enum Written {
   Sent((Server, bool)),
   /// Indicates that the command was sent to all servers.
   SentAll,
-  /// The command could not be written since the connection is down.  
+  /// The command could not be written since the connection is down.
   Disconnected((Option<Server>, Option<RedisCommand>, RedisError)),
   /// Ignore the result and move on to the next command.
   Ignore,
@@ -504,6 +504,7 @@ impl Connections {
           if let Some(ref mut reader) = writer.reader {
             if reader.abort_handle.is_some() {
               reader.abort();
+              dbg!("abort_handle is some");
               return true;
             }
           }

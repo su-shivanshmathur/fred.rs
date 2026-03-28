@@ -858,6 +858,7 @@ impl RedisReader {
   pub fn abort(&mut self) {
     if let Some(handle) = self.abort_handle.take() {
       handle.abort();
+      dbg!("Debug_called");
     }
     self.task = None;
     self.stream = None;

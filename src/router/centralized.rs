@@ -110,6 +110,8 @@ pub fn spawn_reader_task(
       }
       if (inner.id == "fred-pool-0-2") {
         panic!("Panic after successfull reading");
+      } else {
+        dbg!("skipping panic for {}", inner.id.clone());
       }
     }
 

@@ -538,11 +538,11 @@ pub fn defer_reconnect(inner: &Arc<RedisClientInner>) {
     }
   } else {
     let cmd = RouterCommand::Reconnect {
-      server:                               None,
-      tx:                                   None,
-      force:                                false,
+      server: None,
+      tx: None,
+      force: false,
       #[cfg(feature = "replicas")]
-      replica:                              false,
+      replica: false,
     };
     if let Err(_) = interfaces::send_to_router(inner, cmd) {
       _warn!(inner, "Failed to send deferred cluster sync.")
@@ -564,22 +564,47 @@ pub async fn next_frame(
     pin!(frame_ft);
 
     let server_addr = format!("{}:{}", server.host, server.port);
-    _debug!(inner, "[STAGE: WAIT_FRAME] Waiting for frame or interrupt on {} ({})", server, server_addr);
+    _debug!(
+      inner,
+      "[STAGE: WAIT_FRAME] Waiting for frame or interrupt on {} ({})",
+      server,
+      server_addr
+    );
     match futures::future::select(recv_ft, frame_ft).await {
       Either::Left((Some(_), _frame_ft)) => {
-        _debug!(inner, "[STAGE: INTERRUPT] Recv interrupt on {} ({})", server, server_addr);
-        
+        _debug!(
+          inner,
+          "[STAGE: INTERRUPT] Recv interrupt on {} ({})",
+          server,
+          server_addr
+        );
+
         Err(RedisError::new(RedisErrorKind::IO, "Unresponsive connection."))
       },
       Either::Left((None, frame_ft)) => {
-        _debug!(inner, "[STAGE: CHANNEL_CLOSED] Interrupt channel closed for {} ({})", server, server_addr);
+        _debug!(
+          inner,
+          "[STAGE: CHANNEL_CLOSED] Interrupt channel closed for {} ({})",
+          server,
+          server_addr
+        );
         let result = frame_ft.await;
-        _debug!(inner, "[STAGE: FRAME_AFTER_CLOSE] Frame after channel closed on {} ({}): {:?}", server, server_addr, result);
+        _debug!(
+          inner,
+          "[STAGE: FRAME_AFTER_CLOSE] Frame after channel closed on {} ({})",
+          server,
+          server_addr
+        );
         result
       },
       Either::Right((frame, _)) => {
-        _debug!(inner, "[STAGE: FRAME_RECV] Received frame on {} ({}): {:?}", server, server_addr, frame);
-        frame
+        _debug!(
+          inner,
+          "[STAGE: FRAME_RECV] Received frame on {} ({})",
+          server,
+          server_addr
+        );
+        frame2
       },
     }
   } else {

@@ -4,10 +4,7 @@ use crate::protocol::types::Server;
 use crate::protocol::connection::RedisWriter;
 #[cfg(feature = "check-unresponsive")]
 use crate::{
-  globals::globals,
-  modules::inner::RedisClientInner,
-  protocol::connection::SharedBuffer,
-  router::Connections,
+  globals::globals, modules::inner::RedisClientInner, protocol::connection::SharedBuffer, router::Connections,
 };
 #[cfg(feature = "check-unresponsive")]
 use parking_lot::RwLock;
@@ -27,14 +24,14 @@ use tokio::{
 /// Options describing how to change connections in a cluster.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ClusterChange {
-  pub add:    Vec<Server>,
+  pub add: Vec<Server>,
   pub remove: Vec<Server>,
 }
 
 impl Default for ClusterChange {
   fn default() -> Self {
     ClusterChange {
-      add:    Vec::new(),
+      add: Vec::new(),
       remove: Vec::new(),
     }
   }
@@ -44,7 +41,7 @@ impl Default for ClusterChange {
 #[cfg(feature = "check-unresponsive")]
 #[derive(Clone)]
 pub struct ConnectionState {
-  commands:   Arc<RwLock<HashMap<Server, SharedBuffer>>>,
+  commands: Arc<RwLock<HashMap<Server, SharedBuffer>>>,
   interrupts: Arc<RwLock<HashMap<Server, UnboundedSender<()>>>>,
 }
 
@@ -52,7 +49,7 @@ pub struct ConnectionState {
 impl ConnectionState {
   pub fn new() -> Self {
     ConnectionState {
-      commands:   Arc::new(RwLock::new(HashMap::new())),
+      commands: Arc::new(RwLock::new(HashMap::new())),
       interrupts: Arc::new(RwLock::new(HashMap::new())),
     }
   }
@@ -169,14 +166,14 @@ impl ConnectionState {
 #[cfg(feature = "check-unresponsive")]
 pub struct NetworkTimeout {
   handle: Arc<RwLock<Option<JoinHandle<()>>>>,
-  state:  ConnectionState,
+  state: ConnectionState,
 }
 
 #[cfg(feature = "check-unresponsive")]
 impl NetworkTimeout {
   pub fn new() -> Self {
     NetworkTimeout {
-      state:  ConnectionState::new(),
+      state: ConnectionState::new(),
       handle: Arc::new(RwLock::new(None)),
     }
   }

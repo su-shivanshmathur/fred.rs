@@ -6,21 +6,8 @@ use crate::{
   protocol::command::{RedisCommand, RouterCommand},
   router::commands as router_commands,
   types::{
-    ClientState,
-    ClusterStateChange,
-    ConnectHandle,
-    ConnectionConfig,
-    CustomCommand,
-    FromRedis,
-    InfoKind,
-    Options,
-    PerformanceConfig,
-    ReconnectPolicy,
-    RedisConfig,
-    RedisValue,
-    RespVersion,
-    Server,
-    ShutdownFlags,
+    ClientState, ClusterStateChange, ConnectHandle, ConnectionConfig, CustomCommand, FromRedis, InfoKind, Options,
+    PerformanceConfig, ReconnectPolicy, RedisConfig, RedisValue, RespVersion, Server, ShutdownFlags,
   },
   utils,
 };
@@ -330,7 +317,7 @@ pub trait ClientLike: Clone + Send + Sized {
   /// Customize various configuration options on commands.
   fn with_options(&self, options: &Options) -> WithOptions<Self> {
     WithOptions {
-      client:  self.clone(),
+      client: self.clone(),
       options: options.clone(),
     }
   }
@@ -476,6 +463,27 @@ pub trait EventInterface: ClientLike {
   #[cfg_attr(docsrs, doc(cfg(feature = "check-unresponsive")))]
   fn unresponsive_rx(&self) -> BroadcastReceiver<Server> {
     self.inner().notifications.unresponsive.load().subscribe()
+  }
+
+  /// Abort the reader task(s) for the underlying connection(s).
+  ///
+  /// If `server` is `None`, aborts reader tasks for all connections.
+  /// Returns the number of reader tasks aborted.
+  ///
+  /// This can be useful when implementing connection management logic that
+  /// needs to forcefully terminate the read side of connections without
+  /// waiting for a graceful shutdown.
+  fn abort_reader(&self, server: Option<Server>) -> usize {
+    match server {
+      Some(server) => {
+        if self.inner().abort_reader(&server) {
+          1
+        } else {
+          0
+        }
+      },
+      None => self.inner().abort_all_readers(),
+    }
   }
 }
 

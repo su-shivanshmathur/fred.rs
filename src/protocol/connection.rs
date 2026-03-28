@@ -20,12 +20,11 @@ use redis_protocol::resp3::types::{Frame as Resp3Frame, RespVersion};
 use semver::Version;
 use socket2::SockRef;
 use std::{
-  any::Any,
   collections::VecDeque,
   fmt,
   net::SocketAddr,
   pin::Pin,
-  str::{self, pattern::Pattern},
+  str,
   sync::{atomic::AtomicUsize, Arc},
   task::{Context, Poll},
   time::Duration,
@@ -1037,14 +1036,15 @@ where
       ))
     },
   };
-  reader.task = Some(func(
+  let handle = func(
     inner,
     reader_stream,
     &writer.server,
     &writer.buffer,
     &writer.counters,
     is_replica,
-  ));
+  );
+  inner.register_reader_task(writer.server.clone(), Arc::new(handle));
   writer.reader = Some(reader);
 
   Ok((server, writer))

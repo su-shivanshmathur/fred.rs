@@ -10,8 +10,7 @@ use crate::{
   },
   trace,
   types::{CustomCommand, RedisValue},
-  utils as client_utils,
-  utils,
+  utils as client_utils, utils,
 };
 use bytes_utils::Str;
 use parking_lot::Mutex;
@@ -20,8 +19,7 @@ use std::{
   convert::TryFrom,
   fmt,
   fmt::Formatter,
-  mem,
-  str,
+  mem, str,
   sync::{atomic::AtomicBool, Arc},
   time::{Duration, Instant},
 };
@@ -1399,53 +1397,53 @@ impl RedisCommandKind {
 
 pub struct RedisCommand {
   /// The command and optional subcommand name.
-  pub kind:                   RedisCommandKind,
+  pub kind: RedisCommandKind,
   /// The policy to apply when handling the response.
-  pub response:               ResponseKind,
+  pub response: ResponseKind,
   /// The policy to use when hashing the arguments for cluster routing.
-  pub hasher:                 ClusterHash,
+  pub hasher: ClusterHash,
   /// The provided arguments.
   ///
   /// Some commands store arguments differently. Callers should use `self.args()` to account for this.
-  pub arguments:              Vec<RedisValue>,
+  pub arguments: Vec<RedisValue>,
   /// A oneshot sender used to communicate with the router.
-  pub router_tx:              Arc<Mutex<Option<RouterSender>>>,
+  pub router_tx: Arc<Mutex<Option<RouterSender>>>,
   /// The number of times the command has been written to a socket.
-  pub write_attempts:         u32,
+  pub write_attempts: u32,
   /// The number of write attempts remaining.
-  pub attempts_remaining:     u32,
+  pub attempts_remaining: u32,
   /// The number of cluster redirections remaining.
   pub redirections_remaining: u32,
   /// Whether or not the command can be pipelined.
   ///
   /// Also used for commands like XREAD that block based on an argument.
-  pub can_pipeline:           bool,
+  pub can_pipeline: bool,
   /// Whether or not to skip backpressure checks.
-  pub skip_backpressure:      bool,
+  pub skip_backpressure: bool,
   /// The internal ID of a transaction.
-  pub transaction_id:         Option<u64>,
+  pub transaction_id: Option<u64>,
   /// The timeout duration provided by the `with_options` interface.
-  pub timeout_dur:            Option<Duration>,
+  pub timeout_dur: Option<Duration>,
   /// Whether the command has timed out from the perspective of the caller.
-  pub timed_out:              Arc<AtomicBool>,
+  pub timed_out: Arc<AtomicBool>,
   /// A timestamp of when the command was last written to the socket.
-  pub network_start:          Option<Instant>,
+  pub network_start: Option<Instant>,
   /// Whether to route the command to a replica, if possible.
-  pub use_replica:            bool,
+  pub use_replica: bool,
   /// Only send the command to the provided server.
-  pub cluster_node:           Option<Server>,
+  pub cluster_node: Option<Server>,
   /// A timestamp of when the command was first created from the public interface.
   #[cfg(feature = "metrics")]
-  pub created:                Instant,
+  pub created: Instant,
   /// Tracing state that has to carry over across writer/reader tasks to track certain fields (response size, etc).
   #[cfg(feature = "partial-tracing")]
-  pub traces:                 CommandTraces,
+  pub traces: CommandTraces,
   /// A counter to differentiate unique commands.
   #[cfg(feature = "debug-ids")]
-  pub counter:                usize,
+  pub counter: usize,
   /// Whether to send a `CLIENT CACHING yes|no` before the command.
   #[cfg(feature = "client-tracking")]
-  pub caching:                Option<bool>,
+  pub caching: Option<bool>,
 }
 
 impl fmt::Debug for RedisCommand {
@@ -1482,30 +1480,30 @@ impl From<RedisCommandKind> for RedisCommand {
 impl Default for RedisCommand {
   fn default() -> Self {
     RedisCommand {
-      kind:                                        RedisCommandKind::Ping,
-      arguments:                                   Vec::new(),
-      timed_out:                                   Arc::new(AtomicBool::new(false)),
-      timeout_dur:                                 None,
-      response:                                    ResponseKind::Respond(None),
-      hasher:                                      ClusterHash::default(),
-      router_tx:                                   Arc::new(Mutex::new(None)),
-      attempts_remaining:                          0,
-      redirections_remaining:                      0,
-      can_pipeline:                                true,
-      skip_backpressure:                           false,
-      transaction_id:                              None,
-      use_replica:                                 false,
-      cluster_node:                                None,
-      network_start:                               None,
-      write_attempts:                              0,
+      kind: RedisCommandKind::Ping,
+      arguments: Vec::new(),
+      timed_out: Arc::new(AtomicBool::new(false)),
+      timeout_dur: None,
+      response: ResponseKind::Respond(None),
+      hasher: ClusterHash::default(),
+      router_tx: Arc::new(Mutex::new(None)),
+      attempts_remaining: 0,
+      redirections_remaining: 0,
+      can_pipeline: true,
+      skip_backpressure: false,
+      transaction_id: None,
+      use_replica: false,
+      cluster_node: None,
+      network_start: None,
+      write_attempts: 0,
       #[cfg(feature = "metrics")]
-      created:                                     Instant::now(),
+      created: Instant::now(),
       #[cfg(feature = "partial-tracing")]
-      traces:                                      CommandTraces::default(),
+      traces: CommandTraces::default(),
       #[cfg(feature = "debug-ids")]
-      counter:                                     command_counter(),
+      counter: command_counter(),
       #[cfg(feature = "client-tracking")]
-      caching:                                     None,
+      caching: None,
     }
   }
 }
@@ -1822,9 +1820,9 @@ impl RedisCommand {
   #[cfg(feature = "mocks")]
   pub fn to_mocked(&self) -> MockCommand {
     MockCommand {
-      cmd:        self.kind.cmd_str(),
+      cmd: self.kind.cmd_str(),
       subcommand: self.kind.subcommand_str(),
-      args:       self.args().clone(),
+      args: self.args().clone(),
     }
   }
 
@@ -1862,32 +1860,32 @@ pub enum RouterCommand {
   // transactions against a cluster, and may clone commands before sending them in order to replay them later with
   // a different cluster node mapping.
   Transaction {
-    id:             u64,
-    commands:       Vec<RedisCommand>,
-    watched:        Option<RedisCommand>,
+    id: u64,
+    commands: Vec<RedisCommand>,
+    watched: Option<RedisCommand>,
     abort_on_error: bool,
-    tx:             ResponseSender,
+    tx: ResponseSender,
   },
   /// Retry a command after a `MOVED` error.
   // This will trigger a call to `CLUSTER SLOTS` before the command is retried.
   Moved {
-    slot:    u16,
-    server:  Server,
+    slot: u16,
+    server: Server,
     command: RedisCommand,
   },
   /// Retry a command after an `ASK` error.
   // This is typically used instead of `RouterResponse::Ask` when a command was pipelined.
   Ask {
-    slot:    u16,
-    server:  Server,
+    slot: u16,
+    server: Server,
     command: RedisCommand,
   },
   /// Initiate a reconnection to the provided server, or all servers.
   // The client may not perform a reconnection if a healthy connection exists to `server`, unless `force` is `true`.
   Reconnect {
-    server:  Option<Server>,
-    force:   bool,
-    tx:      Option<ResponseSender>,
+    server: Option<Server>,
+    force: bool,
+    tx: Option<ResponseSender>,
     #[cfg(feature = "replicas")]
     replica: bool,
   },

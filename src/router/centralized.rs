@@ -13,7 +13,10 @@ use crate::{
   router::{responses, utils, Connections, Written},
   types::ServerConfig,
 };
-use std::sync::Arc;
+use std::sync::{
+  atomic::{AtomicI32, AtomicI64},
+  Arc,
+};
 use tokio::task::JoinHandle;
 
 pub async fn write(
@@ -57,7 +60,7 @@ pub fn spawn_reader_task(
       "[STAGE: READER_TASK] Starting reader task for connection to {}",
       server_addr
     );
-    let mut counter: i64 = 0;
+    let mut counter = 0;
     loop {
       counter += 1;
       _debug!(
@@ -113,7 +116,7 @@ pub fn spawn_reader_task(
       if counter == 5 {
         panic!("Panic after successfull reading");
       } else {
-        dbg!("skipping panic for {}", inner.id.clone());
+        dbg!(format!("skipping panic for {}, count = {counter}", inner.id.clone()));
       }
     }
 
